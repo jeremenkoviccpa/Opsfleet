@@ -129,33 +129,85 @@ The data is generated from a fixed seed, so every machine produces identical num
 
 ### BigQuery — the real public dataset
 
+**Verified.** The adapter has been run end to end against
+`bigquery-public-data.thelook_ecommerce` (125,262 orders, 181,225 line items, 100,000
+users) — schema reads, the dry-run cost gate, real execution, PII masking on live rows,
+and the validator still rejecting writes.
+
+Two scripts do the setup. The only step you must run yourself is the browser login:
+
 ```bash
-# 1. Authenticate
+gcloud auth login                       # interactive — your Google account
+./scripts/setup_gcp.sh                  # creates the project, enables the BigQuery API
+```
+
+Then give the Python client credentials. Either an interactive login:
+
+```bash
 gcloud auth application-default login
-
-# 2. Point at a project that will be billed for query compute.
-#    The dataset itself is public; the free tier covers 1 TB/month, and this
-#    workload uses megabytes per query.
-export GOOGLE_CLOUD_PROJECT=your-project-id
-export RIA_WAREHOUSE=bigquery
 ```
 
-Or with a service account:
+…or a least-privilege service account, which is what the production design specifies:
 
 ```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
-export GOOGLE_CLOUD_PROJECT=your-project-id
-export RIA_WAREHOUSE=bigquery
+PROJECT_ID=<your-project>
+gcloud iam service-accounts create ria-agent --project="$PROJECT_ID"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:ria-agent@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/bigquery.jobUser" --condition=None
+gcloud iam service-accounts keys create ~/.config/gcloud/ria-agent-key.json \
+  --iam-account="ria-agent@$PROJECT_ID.iam.gserviceaccount.com"
+export GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/ria-agent-key.json
 ```
 
-The service account needs `roles/bigquery.jobUser` on your project. It needs no grant on
-the dataset — `bigquery-public-data` is world-readable.
+`roles/bigquery.jobUser` grants the ability to *run* a query billed to your project and
+nothing else. It confers no data-write permission anywhere — verified by attempting a
+`CREATE SCHEMA`, which returns
+`403 … does not have bigquery.datasets.create permission`. Keep the key outside the
+repository; `.gitignore` also blocks `*-key.json` as a second line of defence.
 
-Every query is **dry-run first**, so cost is known before it is incurred, and every job
-carries `maximum_bytes_billed`, so a mis-estimated query is killed by BigQuery rather than
-by your invoice.
+Verify the whole adapter:
 
----
+```bash
+GOOGLE_CLOUD_PROJECT=$PROJECT_ID PYTHONPATH=src .venv/bin/python scripts/verify_bigquery.py
+```
+
+```
+health: {'status': 'ok', 'backend': 'bigquery', ...}
+
+--- schema reads ---
+  ok  orders          125,262 rows, 9 columns
+  ok  order_items     181,225 rows, 11 columns
+  ok  products         29,120 rows, 9 columns
+  ok  users           100,000 rows, 16 columns
+
+[state spend gap (PII columns projected -> must be masked)]
+  validator: ok  actions={'customer_id': ('hash', …), 'age': ('generalize', …)}
+  dry run  : 8.9 MB would be billed
+  executed : 5 rows in 1215 ms, 31.5 MB billed
+  masking  : customer_id->hash, age->generalize:age_band
+
+  | customer_id   | state      | age   | revenue |
+  | cust_2e10b96b | California | 50-59 | 1,168   |
+
+--- statements the validator must reject ---
+  ok  denied PII column: column `users.first_name` is classified PII …
+  ok  write attempt: only SELECT statements are permitted, got DELETE
+
+PASS — BigQuery adapter verified.
+```
+
+Then run the agent against it:
+
+```bash
+GOOGLE_CLOUD_PROJECT=$PROJECT_ID RIA_WAREHOUSE=bigquery PYTHONPATH=src python -m agent
+```
+
+**Cost.** Every query is dry-run first, so the price is known before it is incurred, and
+every job carries `maximum_bytes_billed` so a mis-estimate is killed by BigQuery rather
+than by your invoice. A measured two-query analysis turn billed **62.9 MB — 0.006% of the
+1 TB monthly free tier**, or roughly 16,000 turns per month at no cost. No billing account
+is required: the project runs in BigQuery sandbox mode, which can query public datasets.
 
 ## Run it
 

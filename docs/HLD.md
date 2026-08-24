@@ -1002,11 +1002,21 @@ warehouse that runs with no cloud account.
 | Persona agility | **Full** — hot-reloaded YAML, 2 personas | `config/personas/`, `config.py` |
 | Multi-step analysis | **Full** — planner decomposes into ≤4 steps | `nodes/understand.py` |
 
-Deliberately **not** built, and why: real GCP infrastructure (Firestore, Pub/Sub, Cloud
-Run) is replaced by SQLite, in-process queues and a CLI — the interfaces are the same
-shape, and standing up a GCP project adds no design signal; charts, email and web search
-are described as extension points rather than implemented, because the extensibility claim
-is proven by the warehouse `Protocol` already having two implementations.
+**Both warehouse backends are verified.** The agent runs against the real
+`bigquery-public-data.thelook_ecommerce` (125,262 orders, 181,225 line items, 100,000
+users) through a service account holding only `roles/bigquery.jobUser` — schema reads, the
+dry-run cost gate, live execution, PII masking on real rows, and the validator rejecting
+writes were all exercised end to end (`scripts/verify_bigquery.py`). The least-privilege
+claim in §16 is demonstrated rather than asserted: the same account attempting
+`CREATE SCHEMA` receives `403 … does not have bigquery.datasets.create permission`.
+A measured two-query turn billed 62.9 MB, 0.006% of the monthly free tier.
+
+Deliberately **not** built, and why: the surrounding GCP infrastructure (Firestore,
+Pub/Sub, Cloud Run, Vertex AI Vector Search) is replaced by SQLite, in-process queues and
+a CLI — the interfaces are the same shape and provisioning them adds no design signal;
+charts, email and web search are described as extension points rather than implemented,
+because the extensibility claim is already proven by the warehouse `Protocol` having two
+working implementations that run identical generated SQL.
 
 ---
 

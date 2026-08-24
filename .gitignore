@@ -4,6 +4,10 @@ __pycache__/
 .pytest_cache/
 .runtime/
 .env
+*-key.json
+*-credentials.json
+service-account*.json
+adc.json
 data/golden_bucket/candidates/*.json
 data/golden_bucket/.embedding_cache.json
 evals/results/

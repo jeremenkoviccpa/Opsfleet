@@ -188,4 +188,9 @@ means the analyst precedents in the Golden Bucket describe patterns that actuall
 the data, and the agent can be judged on whether it finds them.
 
 Point the agent at the real dataset with `RIA_WAREHOUSE=bigquery` — the generated SQL is
-identical; only the adapter changes.
+identical; only the adapter changes. That path is **verified**: the agent has been run
+against the live `bigquery-public-data.thelook_ecommerce` (125,262 orders, 100,000 users)
+through a service account holding only `roles/bigquery.jobUser`, with PII masked on real
+rows and a measured cost of 62.9 MB per turn — 0.006% of the monthly free tier. See
+[`docs/SETUP.md`](docs/SETUP.md#bigquery--the-real-public-dataset) and
+`scripts/verify_bigquery.py`.
