@@ -7,6 +7,7 @@ model reconstructed or a free-text column carried through.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List
 
 from ..llm import BudgetExceeded, TurnBudget
@@ -29,6 +30,19 @@ FALLBACK_ANSWER = (
     "I ran into a problem composing the answer and I don't want to guess at numbers.\n\n"
     "{detail}\n\nThe figures I did retrieve are below — ask me again and I'll retry."
 )
+
+
+REPORT_REQUEST = re.compile(
+    r"\b(?:create|write|produce|prepare|draft|put together|generate|build|make)\b[^.?!]{0,40}"
+    r"\b(?:report|briefing|brief|write[- ]?up|memo|summary document|one[- ]?pager|deck)\b"
+    r"|\breport\b[^.?!]{0,30}\b(?:with|including)\b[^.?!]{0,30}\b(?:action items?|recommendations?)\b",
+    re.IGNORECASE,
+)
+
+
+def _asked_for_a_report(question: str) -> bool:
+    """Backstop for a planner that routed correctly but forgot report_title."""
+    return bool(REPORT_REQUEST.search(question or ""))
 
 
 def _persona(state: AgentState) -> Dict[str, Any]:
@@ -89,8 +103,11 @@ def _scrub(svc: Services, text: str, state: AgentState) -> str:
 def make_synthesize_node(svc: Services, budget: TurnBudget) -> Callable[[AgentState], Dict[str, Any]]:
     def node(state: AgentState) -> Dict[str, Any]:
         persona = _persona(state)
-        wants_report = bool((state.get("deletion_preview") or {}).get("report_title")) or \
-            state.get("route") == "save_report"
+        wants_report = (
+            bool((state.get("deletion_preview") or {}).get("report_title"))
+            or state.get("route") == "save_report"
+            or _asked_for_a_report(state.get("user_query", ""))
+        )
 
         with svc.tracer.span("synthesize", kind="node", is_report=wants_report) as span:
             system = ANALYST_SYSTEM.format(

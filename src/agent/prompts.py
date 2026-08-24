@@ -27,16 +27,17 @@ Return ONLY this JSON object:
     {{"step_id": "s1", "goal": "<one sentence describing the exact figures this query must return>"}}
   ],
   "deletion_criteria": {{"mentions": [], "session_scope": false, "all": false}},
-  "report_title": "<title if route is save_report, else ''>"
+  "report_title": "<see below - '' for an ordinary question>"
 }}
 
 Route definitions:
 - "analysis": needs numbers from the warehouse. THIS IS THE DEFAULT for any business question.
 - "schema": asks what data exists or what the agent can do. No SQL needed.
 - "delete_reports": asks to delete, remove or purge SAVED REPORTS.
-- "save_report": asks to write up / save / produce a formal report or briefing document.
-  If the user wants a report AND the numbers are not already in the conversation, use "analysis"
-  and set notes to say a formal report is wanted.
+- "save_report": asks to write up / save / produce a formal report or briefing document
+  from figures ALREADY in the conversation above. No new SQL needed.
+  If a report is wanted but the numbers are NOT yet in the conversation, use "analysis"
+  instead and add the steps needed to gather them.
 - "converse": greeting, thanks, or a question answerable purely from the conversation above with
   no new data.
 
@@ -48,6 +49,12 @@ Rules for steps:
 - NEVER exceed {max_steps} steps.
 - Each goal must be concrete enough to write SQL from without re-reading the user's message.
 - Steps run in order and cannot reference each other's results, so each must be self-contained.
+
+report_title marks this turn as a REPORT rather than a chat answer. Set it whenever the
+manager asks for a report, briefing, write-up, summary document or "something I can share"
+- INCLUDING when route is "analysis", which is the usual case because a report needs data.
+A turn with a report_title is written in the formal report structure and saved to the
+manager's report library. Leave it "" for an ordinary question.
 
 For "delete_reports", fill deletion_criteria:
 - mentions: entities/keywords the reports must contain (client names, categories, topics).

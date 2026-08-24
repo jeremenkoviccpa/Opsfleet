@@ -399,12 +399,47 @@ manager_a: /trace
 manager_a: Create a Q1 report with insights and action items for Q2
 ```
 
-Produces a structured document — executive summary, metrics table, findings, caveats, and
-actions that each name an owner, a target metric and a measurement window — and saves it:
+Produces a structured document — executive summary, metrics table, findings with evidence,
+caveats, and actions that each name an owner, a target metric and a measurement window.
+Real captured output, abridged:
 
 ```
-_Saved to your report library as_ rpt_8d9994ba — Q1 Performance Review
+  Executive summary
+  Q1 2026 closed with total revenue of $319,915 and a gross margin of $163,499 across
+  3,978 orders. Compared to Q1 2025 revenue of $168,771, total revenue grew 89.6%
+  year-over-year, driven by a doubling of order volume...
+
+  Key metrics
+   Metric              Q1 2026    Q1 2025    YoY Change
+   Total Revenue       $319,915   $168,771   +89.6%
+   Gross Margin        $163,499   $84,944    +92.5%
+   Total Orders        3,978      1,959      +103.1%
+
+  Findings
+   2 Jeans and Tops & Tees are the primary revenue engines.
+      • Evidence: Jeans generated $79,792 across 1,095 orders in Q1 2026 (up from
+        $39,227 and 549 orders in Q1 2025)...
+
+  Risks & caveats
+   • Gross margin reflects product cost only and excludes operating expenses,
+     marketing acquisition costs, fulfilment and overhead...
+
+  Recommended actions
+   1 Action: Protect inventory depth for Jeans and Tops & Tees into summer buying.
+      • Owner: Head of Merchandising
+      • Target Metric: Maintain category stock availability above 95%
+      • Measurement Window: Q2 2026 (2026-04-01 to 2026-06-30)
+
+  Saved to your report library as rpt_20a51095 —
+  Q1 2026 Executive Performance Review and Q2 Action Plan
+
+  4/4 queries · precedent trio_006 · 17.1s · trace 05b8e6a6
 ```
+
+Four queries, because `trio_006` records that a quarterly report needs the prior-year
+quarter for comparison, movers ranked by both absolute and percentage delta, and the
+new-versus-returning customer mix. The YoY column, the evidence lines and the
+owner/metric/window on every action all come from that precedent.
 
 Now delete it. Nothing is mutated until you approve the *exact* resolved set. Real
 captured output:

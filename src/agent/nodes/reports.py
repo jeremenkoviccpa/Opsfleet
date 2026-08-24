@@ -159,8 +159,15 @@ def make_persist_report_node(svc: Services) -> Callable[[AgentState], Dict[str, 
         if not state.get("answer_is_report") or not state.get("answer"):
             return {}
         with svc.tracer.span("persist_report", kind="node") as span:
-            title = ((state.get("deletion_preview") or {}).get("report_title")
-                     or truncate(state["user_query"], 80))
+            # Prefer the planner's title, then a markdown H1 the writer produced,
+            # then the question itself.
+            title = (state.get("deletion_preview") or {}).get("report_title") or ""
+            if not title:
+                for line in (state.get("answer") or "").splitlines():
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+            title = title or truncate(state["user_query"], 80)
             entities = _entities(state)
             report = svc.reports.create(
                 user_id=state["user_id"], session_id=state["session_id"],

@@ -192,3 +192,63 @@ class TestCriteriaPrecedence:
         a, b, c = _seed(services.reports)
         plan = services.reports.resolve_deletion(user_id="manager_a", criteria={"all": True})
         assert set(plan.ids()) == {a.report_id, b.report_id, c.report_id}
+
+
+class TestReportDetection:
+    """A requested report must be formatted as one AND saved.
+
+    Regression: the planner routed a report request to "analysis" (correct - it
+    needed data) but left report_title empty, so the turn was written as a chat
+    answer and never reached the report library.
+    """
+
+    @pytest.mark.parametrize("question", [
+        "Create a Q1 report with insights and action items for Q2",
+        "Write me a report on category performance",
+        "Put together a briefing on last quarter",
+        "Prepare a write-up of the Texas numbers",
+        "produce a report including recommendations",
+    ])
+    def test_report_requests_are_detected(self, question):
+        from agent.nodes.compose import _asked_for_a_report
+        assert _asked_for_a_report(question) is True
+
+    @pytest.mark.parametrize("question", [
+        "How did revenue trend over the last 12 months?",
+        "Why are customers in Texas underspending?",
+        "What data do we have available?",
+        "Delete all reports mentioning Northwind",
+    ])
+    def test_ordinary_questions_are_not_reports(self, question):
+        from agent.nodes.compose import _asked_for_a_report
+        assert _asked_for_a_report(question) is False
+
+    def test_a_report_is_saved_even_when_the_planner_omits_a_title(self, session, fake_llm):
+        # Planner routes to analysis and supplies NO report_title - the exact
+        # shape that silently dropped the report before.
+        fake_llm.set_plan({
+            "route": "analysis", "reason": "needs data", "time_window": "Q1 2026",
+            "notes": "", "steps": [{"step_id": "s1", "goal": "revenue by category"}],
+            "deletion_criteria": {}, "report_title": "",
+        })
+        result = session.ask("Create a Q1 report with insights and action items for Q2")
+        assert result.state["answer_is_report"] is True
+        saved = session.services.reports.list("manager_a")
+        assert saved, "a requested report must reach the library"
+        assert saved[0].report_id in result.answer
+
+    def test_the_report_structure_is_used_not_the_chat_structure(self, session, fake_llm):
+        fake_llm.set_plan({
+            "route": "analysis", "reason": "needs data", "time_window": "",
+            "notes": "", "steps": [{"step_id": "s1", "goal": "revenue"}],
+            "deletion_criteria": {}, "report_title": "",
+        })
+        session.ask("Create a Q1 report with insights and action items for Q2")
+        analyst = [c["system"] for c in fake_llm.calls if "senior retail data analyst" in c["system"]][-1]
+        assert "SAVED REPORT" in analyst, "the report directive must be in the prompt"
+        assert "Executive summary" in analyst, "the persona's report_format must be used"
+
+    def test_an_ordinary_question_is_not_saved_as_a_report(self, session):
+        result = session.ask("How did revenue trend over the last 12 months?")
+        assert result.state.get("answer_is_report") is not True
+        assert session.services.reports.list("manager_a") == []
