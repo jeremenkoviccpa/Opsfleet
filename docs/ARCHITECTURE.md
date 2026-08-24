@@ -8,14 +8,21 @@ The reasoning behind every choice — why LangGraph, why Gemini tiered, why BigQ
 **[the design document](HLD.md)**, which also carries six further diagrams covering
 retrieval, the learning loops, failover and the evaluation pyramid.
 
-| # | Diagram | Question it answers |
-|---|---|---|
-| 1 | [System architecture](#1-system-architecture) | What services, and how do they communicate? |
-| 2 | [Compute and request path](#2-compute-and-request-path) | What compute runs where, and how does it scale? |
-| 3 | [Where the data lives](#3-where-the-data-lives) | How and where is data stored and handled? |
-| 4 | [The agent graph](#4-the-agent-graph) | What is the control flow inside a turn? |
-| 5 | [Anatomy of a turn](#5-anatomy-of-a-turn) | What is the end-to-end data flow? |
-| 6 | [Safety enforcement points](#6-safety-enforcement-points) | Where is policy actually enforced? |
+| # | Diagram | Question it answers | PNG |
+|---|---|---|---|
+| 1 | [System architecture](#1-system-architecture) | What services, and how do they communicate? | [png](diagrams/1-system-architecture.png) |
+| 2 | [Compute and request path](#2-compute-and-request-path) | What compute runs where, and how does it scale? | [png](diagrams/2-compute-and-request-path.png) |
+| 3 | [Where the data lives](#3-where-the-data-lives) | How and where is data stored and handled? | [png](diagrams/3-where-the-data-lives.png) |
+| 4 | [The agent graph](#4-the-agent-graph) | What is the control flow inside a turn? | [png](diagrams/4-agent-graph.png) |
+| 5 | [Anatomy of a turn](#5-anatomy-of-a-turn) | What is the end-to-end data flow? | [png](diagrams/5-anatomy-of-a-turn.png) |
+| 6 | [Safety enforcement points](#6-safety-enforcement-points) | Where is policy actually enforced? | [png](diagrams/6-safety-enforcement-points.png) |
+
+> **Viewing these.** The diagrams are Mermaid, which **GitHub renders automatically** —
+> if you are reading this on github.com you are seeing pictures, not code. Viewing the
+> raw file in an editor shows the Mermaid source instead; VS Code needs the
+> *Markdown Preview Mermaid Support* extension to render it locally. Rendered PNGs are
+> committed under [`docs/diagrams/`](diagrams) for offline viewing, and
+> `make diagrams` regenerates them from the Mermaid source.
 
 ---
 
@@ -45,8 +52,8 @@ flowchart TB
     end
 
     subgraph models["Model layer — Vertex AI"]
-        FLASH["Gemini 2.5 Flash<br/><i>guardrail · plan · SQL · repair</i>"]
-        PRO["Gemini 2.5 Pro<br/><i>analysis · reports · judge</i>"]
+        FLASH["Gemini Flash<br/><i>guardrail · plan · SQL · repair</i>"]
+        PRO["Gemini Pro<br/><i>analysis · reports · judge</i>"]
         EMB["gemini-embedding-001"]
         FB["Fallback chain<br/><i>AI Studio -> OpenRouter -> self-hosted</i>"]
     end
@@ -149,47 +156,40 @@ Every class of data, its store, and how it is protected. Nothing personal ever r
 model context, a log, or a trace.
 
 ```mermaid
-flowchart TB
-    subgraph warehouse["Warehouse — read-only"]
-        BQ[("BigQuery<br/><i>thelook_ecommerce</i>")]
-        BQN["service account: bigquery.jobUser only<br/>authorized views omit denied columns<br/>dry run before every execution"]
-        BQ --- BQN
+flowchart TD
+    BQ[("<b>BigQuery</b><br/>thelook_ecommerce<br/><i>raw transaction logs, contains PII</i>")]
+    BQ --> GATE
+
+    subgraph GATE["The masking boundary — nothing personal crosses it"]
+        direction LR
+        M1["<b>deny</b><br/>name · address<br/>coordinates"] --> D1(["dropped —<br/>never leaves"])
+        M2["<b>hash</b><br/>user id · email"] --> D2(["cust_a41f9c"])
+        M3["<b>generalize</b><br/>age · postcode"] --> D3(["30-39 · 945**"])
+        M4["<b>allow</b><br/>state · category<br/>aggregates"] --> D4(["verbatim"])
     end
 
-    subgraph knowledge["Knowledge — versioned"]
-        GCS[("GCS<br/><i>golden trios · personas</i>")]
-        VEC[("Vector index<br/><i>trio embeddings</i>")]
-        GCSN["object versioning = rollback<br/>promoted vs candidate separated<br/>only promoted is retrievable"]
-        GCS --- GCSN
+    GATE --> CTX["<b>Model context</b><br/><i>this is the only shape<br/>the LLM ever receives</i>"]
+    CTX --> ANS["Answer<br/><i>+ regex scrub</i>"]
+
+    BQACC["<b>Access:</b> service account with bigquery.jobUser only<br/>authorized views omit denied columns · dry run before every execution"]
+    BQ -.- BQACC
+
+    subgraph STORES["Everything else the system persists"]
+        direction LR
+        GCS[("<b>GCS</b><br/>golden trios · personas<br/><i>object versioning = rollback</i>")]
+        VEC[("<b>Vector index</b><br/>trio embeddings<br/><i>only promoted trios</i>")]
+        FS[("<b>Firestore</b><br/>sessions · checkpoints · profiles<br/>saved reports · audit log<br/><i>CMEK · TTL on tombstones</i>")]
+        RED[("<b>Memorystore</b><br/>semantic + schema cache<br/><i>short TTL · masked payloads only</i>")]
+        TR[("<b>Cloud Trace + Logging</b><br/>prompts · SQL · decisions<br/><i>never customer PII</i>")]
         GCS --> VEC
     end
 
-    subgraph state["Agent state — per user"]
-        FS[("Firestore<br/><i>sessions · checkpoints<br/>user profiles · saved reports<br/>audit log</i>")]
-        FSN["CMEK encrypted · TTL on tombstones<br/>ownership enforced in the query<br/>audit log append-only"]
-        FS --- FSN
-    end
-
-    subgraph ephemeral["Ephemeral"]
-        RED[("Memorystore<br/><i>semantic + schema cache</i>")]
-        REDN["short TTL · masked payloads only"]
-        RED --- REDN
-    end
-
-    subgraph telemetry["Telemetry"]
-        TR[("Cloud Trace + Logging<br/>-> BigQuery sink")]
-        TRN["prompts and SQL retained<br/>NO customer PII, ever"]
-        TR --- TRN
-    end
-
-    BQ -->|"rows, masked before<br/>entering any prompt"| MASK{{"PII masker"}}
-    MASK -->|"pseudonymous ids,<br/>age bands, aggregates"| CTX["model context"]
-    MASK -.->|"denied columns<br/>never leave"| X["dropped"]
-
     classDef store fill:#1e3a8a,stroke:#93c5fd,color:#fff
     classDef safety fill:#7f1d1d,stroke:#fca5a5,color:#fff
+    classDef out fill:#14532d,stroke:#86efac,color:#fff
     class BQ,GCS,VEC,FS,RED,TR store
-    class MASK safety
+    class GATE,M1,M2,M3,M4 safety
+    class D1,D2,D3,D4,CTX,ANS out
 ```
 
 The masker sits between the warehouse and the prompt, not between the model and the user —

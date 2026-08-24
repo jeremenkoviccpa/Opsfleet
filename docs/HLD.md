@@ -90,8 +90,8 @@ flowchart TB
     end
 
     subgraph models["Model layer — Vertex AI"]
-        FLASH["Gemini 2.5 Flash<br/><i>guardrail · plan · SQL · repair</i>"]
-        PRO["Gemini 2.5 Pro<br/><i>analysis · reports · judge</i>"]
+        FLASH["Gemini Flash<br/><i>guardrail · plan · SQL · repair</i>"]
+        PRO["Gemini Pro<br/><i>analysis · reports · judge</i>"]
         EMB["gemini-embedding-001"]
         FB["Fallback chain<br/><i>AI Studio -> OpenRouter -> self-hosted</i>"]
     end
