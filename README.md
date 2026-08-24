@@ -6,9 +6,95 @@ numbers moved, writes executive reports with action items, and manages a library
 reports — over a read-only BigQuery warehouse whose raw transaction logs contain personal
 data.
 
-- **Design document → [`docs/HLD.md`](docs/HLD.md)** — architecture, diagrams, and a
-  requirement-by-requirement technical explanation.
-- **Setup and a full example run → [`docs/SETUP.md`](docs/SETUP.md)**
+### Deliverables
+
+| | |
+|---|---|
+| **Architecture diagram** | **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)** — services, compute, data storage, control flow and safety enforcement (6 diagrams; 17 in total across the docs) |
+| **Documentation** | **[`docs/HLD.md`](docs/HLD.md)** — the design document: technology choices and why, data flow, error handling, and a requirement-by-requirement explanation |
+| **Setup + example run** | **[`docs/SETUP.md`](docs/SETUP.md)** — install, both warehouse backends, and transcripts captured from live runs |
+| **Source code** | [`src/agent/`](src/agent) — the agent · [`tests/`](tests) 163 tests · [`evals/`](evals) 3 suites |
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph clients["Client layer"]
+        CLI["CLI chat<br/><i>the prototype</i>"]
+        SLACK["Slack bot"]
+        WEB["Web UI"]
+    end
+
+    subgraph edge["Edge"]
+        LB["Cloud Load Balancing<br/>+ Cloud Armor (WAF, rate limits)"]
+        IAP["Identity-Aware Proxy<br/><i>SSO, group -> role</i>"]
+    end
+
+    subgraph runtime["Agent runtime — Cloud Run"]
+        API["FastAPI gateway<br/><i>SSE streaming, auth, quotas</i>"]
+        ORCH["LangGraph orchestrator<br/><i>the agent graph, §3</i>"]
+        SAFE["Safety kernel<br/><i>guardrail · SQL validator · PII masker</i>"]
+        TOOLS["Tool registry<br/><i>warehouse · reports · charts · email · web</i>"]
+    end
+
+    subgraph models["Model layer — Vertex AI"]
+        FLASH["Gemini 2.5 Flash<br/><i>guardrail · plan · SQL · repair</i>"]
+        PRO["Gemini 2.5 Pro<br/><i>analysis · reports · judge</i>"]
+        EMB["gemini-embedding-001"]
+        FB["Fallback chain<br/><i>AI Studio -> OpenRouter -> self-hosted</i>"]
+    end
+
+    subgraph data["Data layer"]
+        BQ[("BigQuery<br/><i>thelook_ecommerce</i><br/>read-only SA + authorized views")]
+        GCS[("GCS<br/><i>golden trios · personas<br/>· report exports</i>")]
+        VEC[("Vector index<br/><i>BQ VECTOR_SEARCH -><br/>Vertex Vector Search at scale</i>")]
+        FS[("Firestore<br/><i>sessions · checkpoints · user profiles<br/>· saved reports · audit log</i>")]
+        REDIS[("Memorystore<br/><i>semantic + schema cache</i>")]
+        SM[("Secret Manager")]
+    end
+
+    subgraph async["Asynchronous"]
+        PS["Pub/Sub"]
+        CT["Cloud Tasks<br/><i>long reports, scheduled digests</i>"]
+        CF["Cloud Functions<br/><i>trio indexing · config validation</i>"]
+    end
+
+    subgraph obs["Observability"]
+        OTEL["OpenTelemetry SDK"]
+        TRACE["Cloud Trace"]
+        LOGS["Cloud Logging -> BigQuery sink"]
+        MON["Cloud Monitoring<br/><i>SLIs, alerts -> PagerDuty</i>"]
+    end
+
+    CLI & SLACK & WEB --> LB --> IAP --> API
+    API --> ORCH
+    ORCH <--> SAFE
+    ORCH --> TOOLS
+    ORCH --> FLASH & PRO
+    FLASH & PRO -.on failure.-> FB
+    ORCH --> EMB --> VEC
+    TOOLS --> BQ
+    TOOLS --> FS
+    ORCH <--> FS
+    ORCH <--> REDIS
+    GCS --> CF --> VEC
+    GCS -.personas, hot reload.-> ORCH
+    ORCH --> PS --> CF
+    API --> CT --> ORCH
+    SM -.credentials.-> ORCH
+    ORCH --> OTEL --> TRACE & LOGS & MON
+
+    classDef safety fill:#7f1d1d,stroke:#fca5a5,color:#fff
+    classDef store fill:#1e3a8a,stroke:#93c5fd,color:#fff
+    class SAFE safety
+    class BQ,GCS,VEC,FS,REDIS,SM store
+```
+
+Red is the safety kernel; blue is persistent storage. Five more views — compute and request
+path, where the data lives, the agent graph, the turn sequence, and the safety enforcement
+points — are in **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
 ```
 manager_a: Why are customers in Texas underspending compared to customers in California?
@@ -64,7 +150,7 @@ PYTHONPATH=src python -m agent
 ```
 
 First launch seeds ~37k orders and ~72k line items locally (about 2 seconds). To run
-against the real public dataset instead, see [`docs/SETUP.md`](docs/SETUP.md#bigquery).
+against the real public dataset instead, see [`docs/SETUP.md`](docs/SETUP.md#bigquery--the-real-public-dataset).
 
 **Verify the build without an API key** — the whole safety, resilience and observability
 surface is tested against a deterministic model double:

@@ -6,7 +6,7 @@ reports, and manages a library of saved reports — over a read-only BigQuery wa
 containing raw transaction logs with personal data in them.
 
 This document is the production design. The repository contains a working prototype of
-it; [§13](#13-what-the-prototype-implements) maps one to the other.
+it; [§15](#15-what-the-prototype-implements) maps one to the other.
 
 ---
 
