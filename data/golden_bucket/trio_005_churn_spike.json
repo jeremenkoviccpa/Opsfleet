@@ -1,0 +1,18 @@
+{
+  "trio_id": "trio_005",
+  "status": "promoted",
+  "question": "Why did our churn rate spike last month?",
+  "intent_tags": ["churn", "retention", "root_cause", "cohort"],
+  "tables": ["orders", "order_items", "users"],
+  "sql": "WITH monthly_active AS (\n  SELECT DATE_TRUNC(DATE(o.created_at), MONTH) AS month, o.user_id\n  FROM `bigquery-public-data.thelook_ecommerce.orders` o\n  WHERE o.status NOT IN ('Cancelled')\n  GROUP BY 1,2\n),\nlagged AS (\n  SELECT month, user_id,\n         LAG(month) OVER (PARTITION BY user_id ORDER BY month) AS prev_month\n  FROM monthly_active\n)\nSELECT m.month,\n       COUNT(DISTINCT m.user_id) AS active_customers,\n       COUNT(DISTINCT CASE WHEN l.prev_month IS NULL THEN m.user_id END) AS new_customers,\n       COUNT(DISTINCT CASE WHEN l.prev_month IS NOT NULL THEN m.user_id END) AS returning_customers\nFROM monthly_active m\nLEFT JOIN lagged l ON l.month = m.month AND l.user_id = m.user_id\nWHERE m.month >= DATE_SUB(DATE_TRUNC(CURRENT_DATE(), MONTH), INTERVAL 13 MONTH)\nGROUP BY m.month\nORDER BY m.month",
+  "analyst_report": "This dataset has no subscription table, so 'churn' must be defined behaviourally and the definition must be stated in the answer: a customer is churned in month M if they purchased in M-1..M-3 but not in M. Ninety percent of apparent 'churn spikes' are one of three artefacts: (1) the comparison month contained an acquisition burst, so the denominator inflated and the retention rate mechanically fell; (2) the current period is incomplete; (3) a change in cancellation/return handling. Check all three BEFORE reaching for a behavioural explanation, and say which one you ruled out.",
+  "analyst_method_notes": [
+    "State the churn definition explicitly in the answer - there is no churn column.",
+    "Always chart new vs returning; an acquisition spike 3 months ago produces a fake churn spike now.",
+    "Exclude the current partial month from any rate."
+  ],
+  "author": "m.delgado@retailco.example",
+  "quality_score": 0.91,
+  "created_at": "2026-04-08",
+  "used_count": 27
+}

@@ -1,0 +1,54 @@
+# =============================================================================
+# PII policy - the single source of truth for column-level data handling.
+# Owned by the Data Governance team, NOT by engineering. Editable without a
+# redeploy (hot-reloaded on every turn).
+#
+# actions:
+#   deny       -> column may never leave the warehouse. SQL referencing it in a
+#                 SELECT projection is rejected at validation time.
+#   hash       -> replaced with a stable salted SHA-256 prefix (joinable, not
+#                 re-identifiable). Lets the agent say "customer a41f9c spent X".
+#   generalize -> coarsened to a non-identifying bucket (dob -> age_band).
+#   allow      -> non-PII, free to use.
+#
+# `filter_only` columns MAY appear in WHERE/JOIN/GROUP BY but never in the
+# projection - this is what lets "customers in Texas" work without exposing
+# anybody's address.
+# =============================================================================
+
+salt_env_var: PII_HASH_SALT     # if unset, a per-process random salt is used
+
+columns:
+  users.first_name:   { action: deny }
+  users.last_name:    { action: deny }
+  users.email:        { action: hash, filter_only: true }
+  users.street_address: { action: deny }
+  users.postal_code:  { action: generalize, bucket: postal_prefix_3 }
+  users.latitude:     { action: deny }
+  users.longitude:    { action: deny }
+  users.id:           { action: hash, filter_only: false }
+  users.age:          { action: generalize, bucket: age_band }
+  users.gender:       { action: allow }
+  users.state:        { action: allow }
+  users.city:         { action: allow }
+  users.country:      { action: allow }
+  users.traffic_source: { action: allow }
+  users.created_at:   { action: allow }
+
+  orders.user_id:     { action: hash }
+  order_items.user_id: { action: hash }
+
+# Regex sweep applied to (a) every result cell rendered as text and (b) the
+# final natural-language answer. Catches PII that leaks through free-text
+# columns or through the model paraphrasing a value it saw.
+patterns:
+  email:       '(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'
+  # Separators are required so that plain 10-digit identifiers and large
+  # currency figures are not redacted as phone numbers.
+  phone_e164:  '(?:\+\d{1,2}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}\b'
+  credit_card: '\b(?:\d[ -]*?){13,16}\b'
+  ssn:         '\b\d{3}-\d{2}-\d{4}\b'
+  ip_address:  '\b(?:\d{1,3}\.){3}\d{1,3}\b'
+  street:      '(?i)\b\d{1,5}\s+[A-Za-z0-9.\s]{3,30}\s(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct)\b'
+
+redaction_token: '[REDACTED:{kind}]'

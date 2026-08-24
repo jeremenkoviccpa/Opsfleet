@@ -1,0 +1,18 @@
+{
+  "trio_id": "trio_004",
+  "status": "promoted",
+  "question": "Compare the performance of our Jeans category against Shorts and explain the difference.",
+  "intent_tags": ["product_performance", "comparison", "margin", "root_cause"],
+  "tables": ["order_items", "products", "orders"],
+  "sql": "SELECT p.category,\n       COUNT(DISTINCT oi.order_id) AS orders,\n       SUM(oi.sale_price) AS revenue,\n       ROUND(AVG(oi.sale_price), 2) AS avg_selling_price,\n       ROUND(AVG(p.retail_price), 2) AS avg_list_price,\n       ROUND(SUM(oi.sale_price - p.cost), 2) AS gross_margin,\n       ROUND(SUM(oi.sale_price - p.cost) / NULLIF(SUM(oi.sale_price),0) * 100, 1) AS margin_pct,\n       ROUND(1 - AVG(oi.sale_price)/NULLIF(AVG(p.retail_price),0), 3) AS avg_discount_rate,\n       SUM(CASE WHEN oi.status = 'Returned' THEN 1 ELSE 0 END) / NULLIF(COUNT(*),0) AS return_rate\nFROM `bigquery-public-data.thelook_ecommerce.order_items` oi\nJOIN `bigquery-public-data.thelook_ecommerce.products` p ON p.id = oi.product_id\nWHERE p.category IN ('Jeans','Shorts')\nGROUP BY p.category",
+  "analyst_report": "Revenue alone will mislead you on product comparisons. The four-way decomposition that explains almost every category gap is: units sold, average selling price, discount depth (1 - ASP/list), and return rate. A category can out-earn another on revenue while destroying margin through discounting - Jeans typically carries a higher list price but also a deeper discount rate. Always report gross margin AND margin %, because the absolute favours the bigger category and the percentage favours the smaller one; executives need both to allocate shelf space.",
+  "analyst_method_notes": [
+    "Cost lives on products.cost; margin = order_items.sale_price - products.cost.",
+    "Discount depth = 1 - (sale_price / retail_price). This is the usual culprit.",
+    "Return rate must come from order_items.status, not orders.status."
+  ],
+  "author": "s.haddad@retailco.example",
+  "quality_score": 0.94,
+  "created_at": "2026-02-27",
+  "used_count": 35
+}

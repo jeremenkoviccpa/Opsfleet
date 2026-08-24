@@ -1,0 +1,17 @@
+{
+  "trio_id": "trio_003",
+  "status": "promoted",
+  "question": "Who are our top 10 customers by total spend this year?",
+  "intent_tags": ["customer_behaviour", "ranking", "spend", "pii_sensitive"],
+  "tables": ["orders", "order_items", "users"],
+  "sql": "SELECT u.id AS customer_id, u.state, u.age, u.traffic_source,\n       COUNT(DISTINCT o.order_id) AS orders,\n       ROUND(SUM(oi.sale_price), 2) AS lifetime_revenue\nFROM `bigquery-public-data.thelook_ecommerce.users` u\nJOIN `bigquery-public-data.thelook_ecommerce.orders` o ON o.user_id = u.id\nJOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.order_id = o.order_id\nWHERE o.status NOT IN ('Cancelled','Returned')\nGROUP BY 1,2,3,4\nORDER BY lifetime_revenue DESC\nLIMIT 10",
+  "analyst_report": "Never project name/email/address for a 'top customers' question - the business question is about the *segment shape*, not about individuals. Return a pseudonymous customer id plus the attributes that make the cohort actionable (state, age band, acquisition channel). If the manager genuinely needs to contact these people, that is a CRM export request with its own approval path, not a chat answer.",
+  "analyst_method_notes": [
+    "Project users.id (hashed), never first_name/last_name/email.",
+    "Add traffic_source - 'who are they' is only useful if you know how to get more of them."
+  ],
+  "author": "j.okafor@retailco.example",
+  "quality_score": 0.97,
+  "created_at": "2026-03-02",
+  "used_count": 63
+}

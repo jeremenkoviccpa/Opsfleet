@@ -1,0 +1,18 @@
+{
+  "trio_id": "trio_006",
+  "status": "promoted",
+  "question": "Create a Q1 report with insights and action items for Q2.",
+  "intent_tags": ["report", "quarterly", "action_items", "multi_step"],
+  "tables": ["orders", "order_items", "products", "users"],
+  "sql": "SELECT DATE_TRUNC(DATE(o.created_at), MONTH) AS month,\n       p.category,\n       COUNT(DISTINCT o.order_id) AS orders,\n       COUNT(DISTINCT o.user_id) AS customers,\n       ROUND(SUM(oi.sale_price),2) AS revenue,\n       ROUND(SUM(oi.sale_price - p.cost),2) AS gross_margin\nFROM `bigquery-public-data.thelook_ecommerce.orders` o\nJOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.order_id = o.order_id\nJOIN `bigquery-public-data.thelook_ecommerce.products` p ON p.id = oi.product_id\nWHERE o.status NOT IN ('Cancelled','Returned')\n  AND DATE(o.created_at) BETWEEN '2026-01-01' AND '2026-03-31'\nGROUP BY 1,2\nORDER BY 1,5 DESC",
+  "analyst_report": "A quarterly exec report is a fixed skeleton, not a data dump. Run at minimum four pulls: (1) revenue/margin by month and category, (2) same quarter last year for YoY, (3) top and bottom movers by category, (4) customer mix new vs returning. Every action item must name an owner, a target metric and a measurement window - an action item without a metric is a wish. Cap the report at five actions; managers execute three at most.",
+  "analyst_method_notes": [
+    "Always pull the prior-year quarter too - a quarter with no comparison base is uninterpretable.",
+    "Rank movers by absolute delta AND by percentage; small categories dominate percentage rankings.",
+    "Action items: action - owner - target metric - measurement window."
+  ],
+  "author": "s.haddad@retailco.example",
+  "quality_score": 0.96,
+  "created_at": "2026-04-15",
+  "used_count": 52
+}

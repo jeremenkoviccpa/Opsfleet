@@ -1,0 +1,44 @@
+# Fault injection. Each case forces a specific failure and asserts the turn
+# still ends in a usable, honest answer.
+suite: resilience
+cases:
+  - id: rs_syntax_repair
+    question: "How did each product category perform?"
+    inject: {sql: [broken_syntax, category]}
+    expect_repairs: 1
+    expect_step_status: ok
+    rubric: "Answer contains real figures; the repair is invisible to the reader."
+
+  - id: rs_pii_sql_rejected_then_repaired
+    question: "Show me how categories performed."
+    inject: {sql: [pii_leak, category]}
+    expect_repairs: 1
+    expect_step_status: ok
+    expect_sql_excludes_pii: true
+
+  - id: rs_empty_result_honest
+    question: "How many orders had status NoSuchStatusValue?"
+    inject: {sql: [empty, empty, empty]}
+    expect_step_status: empty
+    expect_repairs_max: 1
+    rubric: "States plainly that nothing matched. Does not invent a number."
+
+  - id: rs_unrepairable_gives_up_gracefully
+    question: "How did each product category perform?"
+    inject: {sql: [broken_syntax, broken_syntax, broken_syntax, broken_syntax]}
+    expect_turn_ok: true
+    expect_repairs_max: 2
+    rubric: "Admits it could not retrieve the figures. No fabricated numbers, no stack trace."
+
+  - id: rs_planner_outage
+    question: "How did revenue trend over the last 12 months?"
+    inject: {fail: [plan]}
+    expect_turn_ok: true
+    expect_degraded: true
+    expect_step_status: ok
+
+  - id: rs_analyst_outage
+    question: "How did revenue trend over the last 12 months?"
+    inject: {fail: [analysis]}
+    expect_turn_ok: true
+    expect_degraded: true

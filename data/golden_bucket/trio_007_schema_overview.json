@@ -1,0 +1,17 @@
+{
+  "trio_id": "trio_007",
+  "status": "promoted",
+  "question": "What data do we actually have available? What kinds of questions can I ask?",
+  "intent_tags": ["schema", "capability", "onboarding"],
+  "tables": ["orders", "order_items", "products", "users"],
+  "sql": "",
+  "analyst_report": "Answer in business terms, never as a column dump. We hold four things: WHO bought (customer demographics and acquisition channel), WHAT they bought (product catalogue with cost and list price, so margin is computable), WHEN and HOW MUCH (order and line-item level with timestamps and fulfilment status), and DELIVERY (distribution centre and shipping timestamps). Then give three concrete example questions the manager can copy. Explicitly state the two big limitations up front: there is no marketing-spend table (so ROAS/CAC is not computable) and no subscription table (so churn is behavioural, not contractual).",
+  "analyst_method_notes": [
+    "Describe capability, not schema. Managers do not want column names.",
+    "Always volunteer what is NOT answerable - it prevents a wasted follow-up."
+  ],
+  "author": "j.okafor@retailco.example",
+  "quality_score": 0.9,
+  "created_at": "2026-01-09",
+  "used_count": 71
+}

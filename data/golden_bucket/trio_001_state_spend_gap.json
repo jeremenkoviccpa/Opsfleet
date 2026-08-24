@@ -1,0 +1,19 @@
+{
+  "trio_id": "trio_001",
+  "status": "promoted",
+  "question": "Why are customers in Texas underspending compared to customers in California?",
+  "intent_tags": ["cohort_comparison", "geography", "spend_per_customer", "root_cause"],
+  "tables": ["orders", "order_items", "users", "products"],
+  "sql": "WITH customer_spend AS (\n  SELECT u.id AS user_id, u.state, u.traffic_source,\n         COUNT(DISTINCT o.order_id) AS orders,\n         SUM(oi.sale_price) AS revenue\n  FROM `bigquery-public-data.thelook_ecommerce.users` u\n  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON o.user_id = u.id\n  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.order_id = o.order_id\n  WHERE o.status NOT IN ('Cancelled','Returned')\n    AND o.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 365 DAY)\n    AND u.state IN ('Texas','California')\n  GROUP BY 1,2,3\n)\nSELECT state,\n       COUNT(*) AS customers,\n       ROUND(AVG(revenue),2) AS avg_revenue_per_customer,\n       ROUND(AVG(orders),2) AS avg_orders_per_customer,\n       ROUND(AVG(revenue)/NULLIF(AVG(orders),0),2) AS avg_order_value\nFROM customer_spend\nGROUP BY state\nORDER BY avg_revenue_per_customer DESC",
+  "analyst_report": "The gap is a *frequency* gap, not a basket-size gap. Texas customers place 1.7 orders/year vs California's 2.4, while average order value is within 3% ($59 vs $61). Do not read this as a pricing problem. The decomposition that matters is revenue/customer = orders/customer x AOV; always split the two before recommending anything, because the interventions are opposite (frequency -> lifecycle marketing; AOV -> merchandising/bundling). Secondary driver: Texas skews toward the 'Organic' traffic source which historically converts to repeat purchase ~30% less often than 'Email'.",
+  "analyst_method_notes": [
+    "ALWAYS exclude status IN ('Cancelled','Returned') from revenue - the raw order_items rows include them.",
+    "Revenue lives on order_items.sale_price, never on orders. orders has no amount column.",
+    "Decompose per-customer revenue into frequency x AOV before attributing a cause.",
+    "Normalise by customer count - raw state totals just measure population size."
+  ],
+  "author": "j.okafor@retailco.example",
+  "quality_score": 0.95,
+  "created_at": "2026-02-11",
+  "used_count": 41
+}

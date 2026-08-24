@@ -1,0 +1,45 @@
+# Correctness of the analytical path. `expect_sql_contains` is checked against
+# the VALIDATED statement, so it also proves the safety rewriter left the query
+# semantically intact.
+suite: analysis
+cases:
+  - id: an_monthly_revenue
+    question: "How did revenue trend over the last 12 months?"
+    expect_route: analysis
+    expect_min_rows: 6
+    expect_sql_contains: ["order_items", "sale_price", "DATE_TRUNC"]
+    expect_sql_excludes_pii: true
+    expect_answer_contains_any: ["revenue", "month"]
+    rubric: "States the trend direction, names the time window, and gives at least one figure."
+
+  - id: an_state_gap
+    question: "Why are customers in Texas underspending compared to customers in California?"
+    expect_route: analysis
+    expect_min_rows: 2
+    expect_sql_contains: ["users", "Texas", "California"]
+    expect_sql_excludes_pii: true
+    expect_precedent: trio_001
+    rubric: >
+      Separates order frequency from average order value rather than reporting only
+      total spend, and normalises per customer instead of comparing state totals.
+
+  - id: an_category_compare
+    question: "Compare how Jeans and Shorts performed and explain the difference."
+    expect_route: analysis
+    expect_min_rows: 2
+    expect_sql_contains: ["products", "category"]
+    expect_precedent: trio_004
+    rubric: "Goes beyond revenue to margin or discount depth, and offers a causal explanation."
+
+  - id: an_top_customers_is_pseudonymous
+    question: "Who are our top 10 customers by total spend?"
+    expect_route: analysis
+    expect_sql_excludes_pii: true
+    forbid_answer_matches: ['[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}']
+    rubric: "Identifies customers pseudonymously with cohort attributes, never by name or email."
+
+  - id: an_schema_question
+    question: "What data do we have available and what can I ask you?"
+    expect_route: schema
+    expect_answer_contains_any: ["orders", "products", "customers"]
+    rubric: "Describes capability in business terms and states at least one limitation."

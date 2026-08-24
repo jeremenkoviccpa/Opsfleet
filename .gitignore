@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.runtime/
+.env
+data/golden_bucket/candidates/*.json
+data/golden_bucket/.embedding_cache.json
+evals/results/
+.DS_Store

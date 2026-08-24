@@ -1,0 +1,99 @@
+# =============================================================================
+# Retail Insight Agent - runtime settings
+# Everything here is hot-reloadable EXCEPT `runtime.*` (read once at boot).
+# In production this file is a GCS object; see docs/HLD.md #agility.
+# =============================================================================
+
+runtime:
+  # offline  -> DuckDB mirror of thelook_ecommerce (zero cloud creds needed)
+  # bigquery -> real bigquery-public-data.thelook_ecommerce
+  warehouse: offline
+  default_persona: exec_default
+  session_db: .runtime/agent_state.db
+  trace_dir: .runtime/traces
+
+llm:
+  # Fallback chain, tried top to bottom. First provider with credentials wins;
+  # on hard failure (5xx / timeout / quota) the router advances to the next.
+  chain:
+    - provider: gemini
+      # An ordered list: the router tries each model in turn before giving up on
+      # the provider. Two things make this worth more than per-provider failover:
+      #   * Gemini returns 503 "high demand" on individual models routinely,
+      #     while their siblings keep serving;
+      #   * the AI Studio free tier meters requests PER DAY PER MODEL
+      #     (GenerateRequestsPerDayPerProjectPerModel-FreeTier), so listing
+      #     several models makes those daily allowances stack.
+      # Quality degrades gracefully down the list - the strongest model is first.
+      model:
+        - gemini-3.7-flash
+        - gemini-3.6-flash
+        - gemini-3.5-flash
+        - gemini-flash-latest
+        - gemini-3.5-flash-lite
+        - gemini-flash-lite-latest
+      # Production uses a Pro model here (see docs/HLD.md §5 - the analyst node is
+      # where the stronger model earns its cost). The default is Flash because the
+      # AI Studio FREE TIER grants no Pro request quota: gemini-pro-latest returns
+      # 429 GenerateRequestsPerDayPerProject. On a billed project or Vertex AI,
+      # set this to gemini-pro-latest and nothing else changes.
+      reasoning_model:
+        - gemini-3.7-flash
+        - gemini-3.6-flash
+        - gemini-3.5-flash
+        - gemini-flash-latest
+        - gemini-3.5-flash-lite
+        - gemini-flash-lite-latest
+    - provider: openrouter
+      # Model ids must match the OpenRouter catalog - check https://openrouter.ai/models
+      model: google/gemini-2.0-flash-001
+      reasoning_model: google/gemini-2.0-flash-001
+    - provider: ollama
+      model: qwen2.5:7b-instruct
+      reasoning_model: qwen2.5:14b-instruct
+  temperature: 0.1
+  request_timeout_s: 60
+  max_output_tokens: 4096
+
+budget:
+  # Hard stops that keep a runaway self-correction loop from inflating cost.
+  max_llm_calls_per_turn: 14
+  max_sql_repair_attempts: 2
+  max_bytes_billed_per_query: 2000000000     # 2 GB - BQ kills the job past this
+  max_bytes_billed_per_turn: 6000000000      # 6 GB
+  max_rows_returned: 5000
+  turn_wall_clock_budget_s: 180
+
+retrieval:
+  golden_bucket_top_k: 4
+  bm25_weight: 0.45           # hybrid lexical + semantic; see golden/store.py
+  semantic_weight: 0.55
+  min_hybrid_score: 0.12
+
+safety:
+  # Applied BEFORE the planner sees the message.
+  block_on_injection: true
+  # Applied to every SQL string before execution.
+  allowed_tables:
+    - orders
+    - order_items
+    - products
+    - users
+    - distribution_centers
+    - inventory_items
+  force_limit: 5000
+  # Applied to every result frame AND to the final natural-language answer.
+  output_scrub: true
+
+reports:
+  soft_delete_retention_days: 30
+  # Deleting more than this many reports in one command requires the user to
+  # retype a confirmation phrase, not just press "y".
+  bulk_delete_phrase_threshold: 3
+
+learning:
+  # A preference is only applied to prompts once we've seen it this many times
+  # (or once, if the user stated it explicitly).
+  inferred_pref_min_confidence: 0.6
+  # Candidate trios need this judge score before they can be promoted.
+  trio_promotion_min_score: 0.8
