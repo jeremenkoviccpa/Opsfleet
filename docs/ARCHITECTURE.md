@@ -114,35 +114,33 @@ What actually runs, on what, and what happens when it scales. Everything on the 
 path is one Cloud Run container; the write-behind work is deliberately off it.
 
 ```mermaid
-flowchart LR
-    subgraph sync["Synchronous path — Cloud Run, autoscaled 1..N"]
+flowchart TB
+    U(["manager's browser / CLI"]) -->|"HTTPS + SSE<br/><i>tokens stream as they generate</i>"| FA
+
+    subgraph CR["Cloud Run — one container, autoscaled 1..N"]
         direction TB
-        REQ["HTTPS + SSE<br/><i>token streaming</i>"] --> FA["FastAPI gateway<br/><i>auth · quotas · rate limit</i>"]
-        FA --> LG["LangGraph orchestrator<br/><i>in-process, ~200 MB</i>"]
-        LG --> SK["Safety kernel<br/><i>pure CPU, no I/O</i>"]
-        LG --> IO["I/O fan-out<br/><i>models · warehouse · state</i>"]
+        FA["<b>FastAPI gateway</b><br/><i>auth · per-user quota · rate limit</i>"]
+        FA --> LG["<b>LangGraph orchestrator</b><br/><i>in-process, ~200 MB resident</i>"]
+        LG --> SK["<b>Safety kernel</b><br/><i>pure CPU, no I/O, sub-millisecond</i>"]
+        LG --> IO["<b>I/O fan-out</b><br/><i>models · warehouse · state</i>"]
     end
 
-    subgraph async["Write-behind — never blocks the answer"]
-        direction TB
-        PS["Pub/Sub"] --> CF["Cloud Functions<br/><i>trio indexing · config validation</i>"]
-        CT["Cloud Tasks"] --> LR["Long reports<br/><i>4+ queries, Pro model</i>"]
-        SCH["Cloud Scheduler"] --> NB["Nightly evals<br/>+ quality decay"]
-    end
+    IO --> EXT{{"the turn is ~95% waiting<br/>on these"}}
+    EXT --> M1["Vertex AI<br/><i>6-8 calls/turn</i>"]
+    EXT --> M2["BigQuery<br/><i>1-4 queries/turn</i>"]
+    EXT --> M3["Firestore<br/><i>history · checkpoints</i>"]
 
-    IO -.-> PS
-    FA --> CT
+    IO -.->|"fire and forget"| PS["Pub/Sub"] --> CFN["Cloud Functions<br/><i>trio indexing · config validation</i>"]
+    FA -.->|"if > 60 s of work"| CT["Cloud Tasks"] --> LRP["Long reports<br/><i>4+ queries, Pro model</i>"]
+    SCH["Cloud Scheduler"] --> NB["Nightly evals<br/>+ trio quality decay"]
 
-    subgraph scale["Scaling characteristics"]
-        direction TB
-        S1["bottleneck = model throughput,<br/>not CPU"]
-        S2["min instances 1 in business hours,<br/>0 overnight"]
-        S3["concurrency 8 per instance<br/><i>a turn is I/O-bound</i>"]
-        S4["p95 budget 25 s;<br/>hard cap 180 s per turn"]
-    end
+    SCALE["<b>Scaling</b> — bottleneck is model throughput, not CPU, so instances carry<br/>concurrency 8. Min 1 instance in business hours, 0 overnight.<br/>p95 budget 25 s · hard cap 180 s per turn."]
+    CR -.- SCALE
 
     classDef safety fill:#7f1d1d,stroke:#fca5a5,color:#fff
+    classDef note fill:#1f2937,stroke:#6b7280,color:#e5e7eb
     class SK safety
+    class SCALE,EXT note
 ```
 
 A turn is almost entirely waiting on the model, so instances carry high concurrency and the
