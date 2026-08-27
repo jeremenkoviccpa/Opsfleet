@@ -1003,13 +1003,13 @@ warehouse that runs with no cloud account.
 | Multi-step analysis | **Full** — planner decomposes into ≤4 steps | `nodes/understand.py` |
 
 **Both warehouse backends are verified.** The agent runs against the real
-`bigquery-public-data.thelook_ecommerce` (125,262 orders, 181,225 line items, 100,000
+`bigquery-public-data.thelook_ecommerce` (125,273 orders, 181,721 line items, 100,000
 users) through a service account holding only `roles/bigquery.jobUser` — schema reads, the
 dry-run cost gate, live execution, PII masking on real rows, and the validator rejecting
 writes were all exercised end to end (`scripts/verify_bigquery.py`). The least-privilege
 claim in §16 is demonstrated rather than asserted: the same account attempting
 `CREATE SCHEMA` receives `403 … does not have bigquery.datasets.create permission`.
-A measured two-query turn billed 62.9 MB, 0.006% of the monthly free tier.
+A measured three-query verification run billed 18.9 MB, 0.002% of the monthly free tier. (The public dataset grows over time, so the row counts above are as of the last verification run rather than fixed.)
 
 Deliberately **not** built, and why: the surrounding GCP infrastructure (Firestore,
 Pub/Sub, Cloud Run, Vertex AI Vector Search) is replaced by SQLite, in-process queues and
