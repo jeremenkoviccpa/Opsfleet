@@ -138,7 +138,7 @@ generates a local DuckDB mirror of `thelook_ecommerce` with the same schema, so 
 SQL the agent writes for BigQuery runs unmodified against it.
 
 ```bash
-git clone <this-repo> && cd retail-insight-agent
+git clone https://github.com/jeremenkoviccpa/Opsfleet.git && cd Opsfleet
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt

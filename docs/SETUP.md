@@ -16,7 +16,7 @@
 Requires **Python 3.11 or newer**.
 
 ```bash
-cd retail-insight-agent
+git clone https://github.com/jeremenkoviccpa/Opsfleet.git && cd Opsfleet
 python3 -m venv .venv
 source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
