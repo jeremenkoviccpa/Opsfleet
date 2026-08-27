@@ -24,7 +24,7 @@ from ..prompts import (
 from ..services import Services
 from ..state import AgentState
 from ..tools.formatting import truncate
-from ..config import load_persona
+from ..config import load_persona, setting
 
 FALLBACK_ANSWER = (
     "I ran into a problem composing the answer and I don't want to guess at numbers.\n\n"
@@ -128,11 +128,18 @@ def make_synthesize_node(svc: Services, budget: TurnBudget) -> Callable[[AgentSt
                 notes=state.get("plan_notes", ""),
                 degraded_note=_degraded_note(state),
             )
+            # Release the reserve the gathering stages were kept out of, then
+            # pick the tier that actually fits in what is left. Degrading the
+            # quality of an answer beats degrading to no answer.
+            budget.enter_synthesis()
+            floor = float(setting("budget.synthesis_fast_tier_below_s", 45))
+            tier = "reasoning" if budget.time_left() > floor else "fast"
+            span.set(tier=tier, time_left_s=round(budget.time_left(), 1))
             try:
                 result = svc.router.complete(
                     purpose="analysis", system=system,
                     messages=[{"role": "user", "content": user}],
-                    tier="reasoning", budget=budget,
+                    tier=tier, budget=budget,
                 )
                 answer = result.text.strip()
                 span.set(provider=result.provider, words=len(answer.split()))
@@ -143,7 +150,12 @@ def make_synthesize_node(svc: Services, budget: TurnBudget) -> Callable[[AgentSt
                 # Never crash the turn: hand back the retrieved figures with an
                 # honest explanation instead of an exception.
                 answer = FALLBACK_ANSWER.format(detail=str(exc)[:300]) + "\n\n" + _results_block(state)
+                # The pipeline succeeded and the answer did not. That is a failed
+                # turn, and it has to be recorded as one - a turn counted as
+                # answered here is a turn the SLIs cannot see and the golden
+                # bucket would happily ingest.
                 return {"answer": _scrub(svc, answer, state), "degraded": True,
+                        "answer_failed": True,
                         "degraded_reason": f"answer composition failed: {type(exc).__name__}",
                         "errors": (state.get("errors") or []) + [str(exc)[:300]]}
 
@@ -220,7 +232,8 @@ def make_converse_node(svc: Services, budget: TurnBudget) -> Callable[[AgentStat
                 span.set(error=str(exc))
                 return {"answer": "I'm having trouble reaching my language model right now. "
                                   "Please try again in a moment.",
-                        "degraded": True, "degraded_reason": str(exc)[:200]}
+                        "degraded": True, "answer_failed": True,
+                        "degraded_reason": str(exc)[:200]}
 
     return node
 

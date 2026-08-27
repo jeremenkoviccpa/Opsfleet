@@ -45,6 +45,7 @@ COUNTERS = [
     "reports.delete_requested",
     "reports.delete_confirmed",
     "reports.delete_cancelled",
+    "reports.restore_confirmed",
     "prefs.learned",
 ]
 

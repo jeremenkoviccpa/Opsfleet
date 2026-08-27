@@ -4,6 +4,7 @@
                └─► retrieve ─► plan ─┬─► schema  ──────► learn ─► END
                                      ├─► converse ─────► learn ─► END
                                      ├─► resolve_del ─► confirm ─► apply ─► END
+                                     ├─► restore ──────────────────────────► END
                                      └─► generate_sql ─► validate ─┬─► execute ─┐
                                                     ▲              └─► repair ──┘
                                                     │                    │
@@ -41,6 +42,8 @@ def route_after_plan(state: AgentState) -> str:
         return "converse"
     if route == "delete_reports":
         return "delete"
+    if route == "restore_reports":
+        return "restore"
     if route == "analysis" and not (state.get("steps") or []):
         return "converse"
     return "analysis"
@@ -73,6 +76,7 @@ def build_graph(svc: Services, budget: Optional[TurnBudget] = None, checkpointer
     g.add_node("schema_answer", compose.make_schema_node(svc, budget))
     g.add_node("converse", compose.make_converse_node(svc, budget))
 
+    g.add_node("restore_reports", reports.make_restore_node(svc))
     g.add_node("resolve_deletion", reports.make_resolve_deletion_node(svc))
     g.add_node("confirm_deletion", reports.make_confirm_deletion_node(svc))
     g.add_node("apply_deletion", reports.make_apply_deletion_node(svc))
@@ -89,6 +93,7 @@ def build_graph(svc: Services, budget: Optional[TurnBudget] = None, checkpointer
         "schema": "schema_answer",
         "converse": "converse",
         "delete": "resolve_deletion",
+        "restore": "restore_reports",
     })
 
     g.add_conditional_edges("generate_sql", sql.after_generate, {
@@ -113,6 +118,7 @@ def build_graph(svc: Services, budget: Optional[TurnBudget] = None, checkpointer
     g.add_conditional_edges("resolve_deletion", route_after_resolve, {
         "confirm": "confirm_deletion", "answer": END,
     })
+    g.add_edge("restore_reports", END)
     g.add_edge("confirm_deletion", "apply_deletion")
     g.add_edge("apply_deletion", END)
     g.add_edge("learn", END)
@@ -130,6 +136,7 @@ def mermaid() -> str:
     P -->|schema| SC[schema answer] --> L[learn]
     P -->|converse| CV[converse] --> L
     P -->|delete_reports| RD[resolve deletion]
+    P -->|restore_reports| RS[restore reports] --> E
     P -->|analysis| GS[generate SQL]
     GS --> V{validate SQL}
     V -->|ok| X[execute]

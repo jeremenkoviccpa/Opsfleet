@@ -79,6 +79,8 @@ def _fallback_plan(state: AgentState, reason: str) -> Dict[str, Any]:
     q = (state.get("user_query") or "").lower()
     if any(w in q for w in ("what data", "what can you", "which tables", "schema", "available data")):
         route = "schema"
+    elif any(w in q for w in ("undo", "restore", "bring back", "put back", "recover")):
+        route = "restore_reports"
     elif any(w in q for w in ("delete", "remove", "purge")) and "report" in q:
         route = "delete_reports"
     elif len(q.split()) <= 3 and any(w in q for w in ("hi", "hello", "thanks", "thank you")):
@@ -128,7 +130,8 @@ def make_plan_node(svc: Services, budget: TurnBudget) -> Callable[[AgentState], 
                 return _fallback_plan(state, "unparseable planner output")
 
             route = str(parsed.get("route", "analysis"))
-            if route not in ("analysis", "schema", "delete_reports", "save_report", "converse"):
+            if route not in ("analysis", "schema", "delete_reports", "restore_reports",
+                             "save_report", "converse"):
                 route = "analysis"
 
             raw_steps = parsed.get("steps") or []

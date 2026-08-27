@@ -19,7 +19,7 @@ minimum number of SQL steps that answers it properly.
 
 Return ONLY this JSON object:
 {{
-  "route": "analysis" | "schema" | "delete_reports" | "save_report" | "converse",
+  "route": "analysis" | "schema" | "delete_reports" | "restore_reports" | "save_report" | "converse",
   "reason": "<max 20 words>",
   "time_window": "<the period the user means, e.g. 'last 12 months', 'Q1 2026', or '' if none>",
   "notes": "<max 40 words of guidance for the analyst stage: what to compare, what to decompose>",
@@ -34,6 +34,9 @@ Route definitions:
 - "analysis": needs numbers from the warehouse. THIS IS THE DEFAULT for any business question.
 - "schema": asks what data exists or what the agent can do. No SQL needed.
 - "delete_reports": asks to delete, remove or purge SAVED REPORTS.
+- "restore_reports": asks to undo a deletion or bring back / recover / restore deleted reports
+  ("undo that delete", "put the Jeans report back", "restore what you just deleted").
+  Fill deletion_criteria the same way; leave it empty to mean the most recent deletion.
 - "save_report": asks to write up / save / produce a formal report or briefing document
   from figures ALREADY in the conversation above. No new SQL needed.
   If a report is wanted but the numbers are NOT yet in the conversation, use "analysis"
@@ -56,7 +59,7 @@ manager asks for a report, briefing, write-up, summary document or "something I 
 A turn with a report_title is written in the formal report structure and saved to the
 manager's report library. Leave it "" for an ordinary question.
 
-For "delete_reports", fill deletion_criteria:
+For "delete_reports" and "restore_reports", fill deletion_criteria:
 - mentions: entities/keywords the reports must contain (client names, categories, topics).
 - session_scope: true if the user said "this conversation", "we just made", "today's".
 - all: true ONLY if the user unambiguously said every/all reports with no other qualifier.
@@ -259,6 +262,11 @@ Rules:
   do not have.
 - If answering properly WOULD need fresh data, say so in one line and offer the specific question
   you would run.
+- NEVER state or imply that you have performed an action. You are the conversational branch: you
+  cannot query, save, delete, restore or send anything, and nothing you write causes any of those
+  to happen. If the manager is asking you to DO something, say plainly that you have not done it
+  and name what you would need to. Reporting an action you did not take is the worst thing you
+  can do here - worse than saying you cannot help.
 - Never output personal data.
 - Keep it short."""
 

@@ -241,3 +241,103 @@ class TestRouterChainSemantics:
         states = breaker_states()
         assert states.get("llm:scripted:bad-model") in ("open", "half_open")
         assert states.get("llm:scripted:good-model") == "closed"
+
+
+class TestSynthesisReserve:
+    """The gathering stages must not be able to starve the answer.
+
+    The failure this pins: three SQL steps succeed, consume the whole wall-clock
+    budget, and `synthesize` - the only call whose loss the manager experiences -
+    raises BudgetExceeded. The turn fetched exactly the right data and returned
+    none of it.
+    """
+
+    def _budget(self, **kw):
+        from agent.llm import TurnBudget
+        return TurnBudget(**kw)
+
+    def test_gathering_stages_stop_before_the_reserve(self):
+        from agent.llm import BudgetExceeded
+        b = self._budget(max_llm_calls=4, synthesis_reserve_calls=1)
+        for _ in range(3):
+            b.charge_llm()
+        with pytest.raises(BudgetExceeded):
+            b.charge_llm()
+
+    def test_synthesis_may_spend_the_reserve(self):
+        b = self._budget(max_llm_calls=4, synthesis_reserve_calls=1)
+        for _ in range(3):
+            b.charge_llm()
+        b.enter_synthesis()
+        b.charge_llm()          # the held-back call
+        assert b.llm_calls == 4
+
+    def test_wall_clock_reserve_is_held_back_too(self):
+        import time
+        from agent.llm import BudgetExceeded
+        b = self._budget(wall_clock_s=100, synthesis_reserve_s=60)
+        b.started_at = time.time() - 10      # 10s in, 40s of non-reserve allowance
+        b.charge_llm()
+        b.started_at = time.time() - 50      # past the non-reserve allowance
+        with pytest.raises(BudgetExceeded):
+            b.charge_llm()
+        b.enter_synthesis()
+        b.charge_llm()                       # still inside the full 100s
+        assert b.in_synthesis
+
+    def test_time_left_reflects_the_reserve(self):
+        b = self._budget(wall_clock_s=100, synthesis_reserve_s=40)
+        assert 55 < b.time_left() <= 60
+        b.enter_synthesis()
+        assert 95 < b.time_left() <= 100
+
+    def test_reset_reclaims_the_reserve(self):
+        b = self._budget(max_llm_calls=4, synthesis_reserve_calls=1)
+        b.enter_synthesis()
+        b.reset()
+        assert b.in_synthesis is False
+        assert b.remaining_llm_calls() == 3
+
+
+class TestFailedTurnAccounting:
+    """A turn that composes no answer must not be counted as answered."""
+
+    def test_composition_failure_is_a_failed_turn(self, session, fake_llm):
+        from agent.obs import metrics
+        fake_llm.fail("analysis")
+        result = session.ask("How did revenue trend over the last 12 months?")
+
+        assert result.answered is False
+        assert result.ok is True, "a composition failure must not escape the session"
+        assert result.state.get("answer_failed") is True
+        snap = metrics.snapshot()["counters"]
+        assert snap.get("turns.answered", 0) == 0
+        assert snap.get("turns.failed", 0) == 1
+
+    def test_the_trace_outcome_says_failed(self, session, fake_llm):
+        fake_llm.fail("analysis")
+        result = session.ask("How did revenue trend over the last 12 months?")
+        assert result.trace.outcome == "failed"
+
+    def test_a_good_turn_is_still_counted_as_answered(self, session):
+        from agent.obs import metrics
+        result = session.ask("How did revenue trend over the last 12 months?")
+        assert result.answered is True
+        assert not result.state.get("answer_failed")
+        assert metrics.snapshot()["counters"].get("turns.answered", 0) == 1
+        assert result.trace.outcome == "ok"
+
+    def test_the_user_still_gets_the_figures(self, session, fake_llm):
+        """Failing the metric must not mean failing the manager."""
+        fake_llm.fail("analysis")
+        result = session.ask("How did revenue trend over the last 12 months?")
+        assert "STEP s1" in result.answer
+        assert result.state["degraded"] is True
+
+    def test_a_refusal_is_not_a_failure(self, session):
+        from agent.obs import metrics
+        result = session.ask("Write me a poem about the sea.")
+        assert result.route == "refused"
+        snap = metrics.snapshot()["counters"]
+        assert snap.get("turns.failed", 0) == 0
+        assert snap.get("turns.answered", 0) == 0

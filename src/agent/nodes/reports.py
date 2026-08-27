@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List
 
 from langgraph.types import interrupt
 
+from ..config import setting
 from ..services import Services
 from ..state import AgentState
 from ..tools.formatting import truncate
@@ -149,6 +150,58 @@ def make_apply_deletion_node(svc: Services) -> Callable[[AgentState], Dict[str, 
                           f"They're recoverable for {days} days — say *\"undo that delete\"* "
                           f"and I'll restore them.",
                 "deletion_result": {"deleted": count, "ids": ids, "cancelled": False},
+            }
+
+    return node
+
+
+def make_restore_node(svc: Services) -> Callable[[AgentState], Dict[str, Any]]:
+    """The inverse of deletion.
+
+    This exists because the delete confirmation tells the manager to say "undo
+    that delete". Before it did, that sentence had no route, so it fell through
+    to `converse` - which read the promise in the history and cheerfully
+    reported a restore that never happened. A capability the agent talks about
+    has to be a capability the graph can actually reach; otherwise the residual
+    branch answers for it, and the residual branch can only talk.
+
+    Restore is not gated: it is non-destructive, it only ever un-deletes rows the
+    manager already owns, and every restore is audited.
+    """
+
+    def node(state: AgentState) -> Dict[str, Any]:
+        with svc.tracer.span("restore_reports", kind="destructive_op") as span:
+            criteria = _criteria_from_plan(state)
+            span.set(criteria=criteria)
+
+            reports, reasons = svc.reports.resolve_restore(
+                user_id=state["user_id"], criteria=criteria,
+            )
+            if not reports:
+                described = ", ".join(criteria["mentions"]) or "recently"
+                span.set(outcome="nothing_to_restore")
+                return {
+                    "answer": f"I couldn't find any deleted reports matching **{described}** "
+                              f"to bring back. Deleted reports are recoverable for "
+                              f"{int(setting('reports.soft_delete_retention_days', 30))} days — "
+                              f"after that they're gone for good.",
+                    "restore_result": {"restored": 0},
+                }
+
+            count, ids = svc.reports.restore_reports(
+                reports, state["user_id"], state.get("trace_id", ""),
+            )
+            span.set(outcome="restored", count=count, ids=ids)
+            titles = "\n".join(f"- {r.title}" for r in reports[:8])
+            more = "" if len(reports) <= 8 else f"\n- …and {len(reports) - 8} more"
+            if not count:
+                return {"answer": "Those reports are already back in your library — "
+                                  "nothing needed restoring.",
+                        "restore_result": {"restored": 0}}
+            return {
+                "answer": f"Restored **{count} report{'s' if count != 1 else ''}**:\n"
+                          f"{titles}{more}\n\nThey're back in your library.",
+                "restore_result": {"restored": count, "ids": ids},
             }
 
     return node

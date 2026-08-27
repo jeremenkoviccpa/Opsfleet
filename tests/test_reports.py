@@ -252,3 +252,101 @@ class TestReportDetection:
         result = session.ask("How did revenue trend over the last 12 months?")
         assert result.state.get("answer_is_report") is not True
         assert session.services.reports.list("manager_a") == []
+
+
+class TestRestore:
+    """Regression cover for the fabricated-restore defect.
+
+    `apply_deletion` tells the manager to say "undo that delete". Before there
+    was a route for that sentence it fell through to `converse`, which read the
+    promise in the history and reported a restore that never happened. These
+    tests pin both halves: the route exists, and the store actually restores.
+    """
+
+    def _delete(self, services, criteria, user="manager_a"):
+        plan = services.reports.resolve_deletion(user_id=user, criteria=criteria)
+        services.reports.confirm_deletion(plan.token, user)
+        return plan
+
+    def test_unqualified_undo_resolves_to_the_last_delete_batch(self, services):
+        a, b, c = _seed(services.reports)
+        self._delete(services, {"mentions": ["jeans"]})
+        found, reasons = services.reports.resolve_restore(user_id="manager_a", criteria={})
+        assert [r.report_id for r in found] == [b.report_id]
+        assert "most recent deletion" in reasons[b.report_id]
+
+    def test_undo_restores_only_the_last_batch_not_everything_deleted(self, services):
+        a, b, c = _seed(services.reports)
+        self._delete(services, {"mentions": ["northwind"]})
+        self._delete(services, {"mentions": ["jeans"]})
+        found, _ = services.reports.resolve_restore(user_id="manager_a", criteria={})
+        assert [r.report_id for r in found] == [b.report_id]
+
+    def test_named_restore_targets_that_report(self, services):
+        a, b, c = _seed(services.reports)
+        self._delete(services, {"session_id": "sess_1"})
+        found, _ = services.reports.resolve_restore(user_id="manager_a",
+                                                    criteria={"mentions": ["northwind"]})
+        assert [r.report_id for r in found] == [a.report_id]
+
+    def test_restore_is_scoped_to_the_owner(self, services):
+        a, b, c = _seed(services.reports)
+        self._delete(services, {"mentions": ["jeans"]})
+        found, _ = services.reports.resolve_restore(user_id="manager_b", criteria={})
+        assert found == []
+
+    def test_nothing_deleted_means_nothing_to_restore(self, services):
+        _seed(services.reports)
+        found, _ = services.reports.resolve_restore(user_id="manager_a", criteria={})
+        assert found == []
+
+    def test_restore_is_audited(self, services):
+        a, b, c = _seed(services.reports)
+        self._delete(services, {"mentions": ["jeans"]})
+        found, _ = services.reports.resolve_restore(user_id="manager_a", criteria={})
+        count, ids = services.reports.restore_reports(found, "manager_a", trace_id="t1")
+        assert count == 1
+        assert not services.reports.get(b.report_id).deleted
+        actions = [e["action"] for e in services.reports.audit_trail("manager_a")]
+        assert "report.restore_confirmed" in actions
+
+
+class TestRestoreThroughTheGraph:
+    def test_undo_that_delete_routes_to_restore_not_converse(self, session, services):
+        a, b, c = _seed(services.reports, session_id=session.session_id)
+        result = session.ask("Delete all reports mentioning Jeans",
+                             on_confirm=lambda p: {"approved": True, "phrase": p["confirm_phrase"]})
+        assert result.state["deletion_result"]["deleted"] == 1
+
+        result = session.ask("undo that delete")
+        # The bug was that this landed in `converse` and was answered by prose.
+        assert result.route == "restore_reports"
+        assert result.state["restore_result"]["restored"] == 1
+        assert "Restored" in result.answer
+
+    def test_the_report_is_actually_back(self, session, services):
+        a, b, c = _seed(services.reports, session_id=session.session_id)
+        session.ask("Delete all reports mentioning Jeans",
+                    on_confirm=lambda p: {"approved": True, "phrase": p["confirm_phrase"]})
+        assert b.report_id not in [r.report_id for r in services.reports.list("manager_a")]
+
+        session.ask("undo that delete")
+        titles = [r.title for r in services.reports.list("manager_a")]
+        assert "Jeans margin review" in titles
+
+    def test_undo_with_nothing_deleted_does_not_claim_a_restore(self, session, services):
+        _seed(services.reports, session_id=session.session_id)
+        result = session.ask("undo that delete")
+        assert result.route == "restore_reports"
+        assert result.state["restore_result"]["restored"] == 0
+        assert "couldn't find" in result.answer.lower()
+        assert "restored" not in result.answer.lower()
+
+    def test_the_delete_message_promises_only_what_the_graph_can_do(self, session, services):
+        """The copy that created the trap must stay backed by a real route."""
+        _seed(services.reports, session_id=session.session_id)
+        result = session.ask("Delete all reports mentioning Jeans",
+                             on_confirm=lambda p: {"approved": True, "phrase": p["confirm_phrase"]})
+        if "undo that delete" in result.answer:
+            follow_up = session.ask("undo that delete")
+            assert follow_up.route == "restore_reports"

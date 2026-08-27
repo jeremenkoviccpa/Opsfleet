@@ -50,17 +50,42 @@ class TurnBudget:
     max_llm_calls: int = 14
     max_bytes_billed: int = 6_000_000_000
     wall_clock_s: float = 180.0
+    # Held back from the gathering stages so the answer can always be written.
+    # Spending the budget first-come-first-served starves synthesis, which is
+    # the one call whose loss the manager actually experiences: three queries
+    # can succeed and the turn still returns nothing.
+    synthesis_reserve_s: float = 45.0
+    synthesis_reserve_calls: int = 1
     started_at: float = field(default_factory=time.time)
     llm_calls: int = 0
     bytes_billed: int = 0
+    in_synthesis: bool = False
+
+    def enter_synthesis(self) -> "TurnBudget":
+        """Release the reserve. Called once, by the node that writes the answer."""
+        self.in_synthesis = True
+        return self
+
+    def _limits(self) -> "tuple[int, float]":
+        if self.in_synthesis:
+            return self.max_llm_calls, self.wall_clock_s
+        return (
+            max(1, self.max_llm_calls - self.synthesis_reserve_calls),
+            max(1.0, self.wall_clock_s - self.synthesis_reserve_s),
+        )
+
+    def time_left(self) -> float:
+        _, wall = self._limits()
+        return max(0.0, wall - (time.time() - self.started_at))
 
     def charge_llm(self) -> None:
-        if self.llm_calls >= self.max_llm_calls:
+        max_calls, wall = self._limits()
+        if self.llm_calls >= max_calls:
             raise BudgetExceeded(
-                f"turn exceeded {self.max_llm_calls} LLM calls - stopping to control cost"
+                f"turn exceeded {max_calls} LLM calls - stopping to control cost"
             )
-        if time.time() - self.started_at > self.wall_clock_s:
-            raise BudgetExceeded(f"turn exceeded {self.wall_clock_s:.0f}s wall clock")
+        if time.time() - self.started_at > wall:
+            raise BudgetExceeded(f"turn exceeded {wall:.0f}s wall clock")
         self.llm_calls += 1
 
     def charge_bytes(self, n: int) -> None:
@@ -72,12 +97,14 @@ class TurnBudget:
         self.bytes_billed += n
 
     def remaining_llm_calls(self) -> int:
-        return max(0, self.max_llm_calls - self.llm_calls)
+        max_calls, _ = self._limits()
+        return max(0, max_calls - self.llm_calls)
 
     def reset(self) -> "TurnBudget":
         self.started_at = time.time()
         self.llm_calls = 0
         self.bytes_billed = 0
+        self.in_synthesis = False
         return self
 
 

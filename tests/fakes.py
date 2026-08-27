@@ -162,6 +162,13 @@ class FakeLLM:
                     "deletion_criteria": {}, "report_title": ""}
             if "what data" in q or "available" in q or "what can you" in q:
                 base.update(route="schema", steps=[])
+            elif re.search(r"\bundo\b|restore|bring back|put back|recover", q):
+                # Must precede the delete rule: "undo that delete" contains both.
+                mentions = re.findall(r"mentioning ([A-Za-z ]+)", user)
+                base.update(route="restore_reports", steps=[], deletion_criteria={
+                    "mentions": [m.strip() for m in mentions],
+                    "session_scope": False, "all": False,
+                })
             elif re.search(r"delete|remove|purge", q) and "report" in q:
                 mentions = re.findall(r"mentioning ([A-Za-z ]+)", user)
                 scoped = "this conversation" in q or "we made" in q

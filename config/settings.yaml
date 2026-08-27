@@ -63,6 +63,14 @@ budget:
   max_bytes_billed_per_turn: 6000000000      # 6 GB
   max_rows_returned: 5000
   turn_wall_clock_budget_s: 180
+  # Held back from planning and SQL generation so the answer can always be
+  # written. Without this the gathering stages spend the whole budget and the
+  # turn returns nothing, having successfully fetched everything it needed.
+  synthesis_reserve_s: 45
+  synthesis_reserve_calls: 1
+  # Below this much remaining time, compose drops to the fast tier rather than
+  # failing. A shorter answer beats no answer.
+  synthesis_fast_tier_below_s: 45
 
 retrieval:
   golden_bucket_top_k: 4

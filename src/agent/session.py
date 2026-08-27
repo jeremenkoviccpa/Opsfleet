@@ -31,7 +31,8 @@ class TurnResult:
     state: Dict[str, Any]
     trace: Optional[Trace]
     elapsed_ms: float
-    ok: bool = True
+    ok: bool = True          # nothing escaped the session; the UI has something to show
+    answered: bool = True    # an answer was actually composed - the SLI-relevant one
     error: str = ""
 
     @property
@@ -62,6 +63,8 @@ class ChatSession:
             max_llm_calls=int(setting("budget.max_llm_calls_per_turn", 14)),
             max_bytes_billed=int(setting("budget.max_bytes_billed_per_turn", 6_000_000_000)),
             wall_clock_s=float(setting("budget.turn_wall_clock_budget_s", 180)),
+            synthesis_reserve_s=float(setting("budget.synthesis_reserve_s", 45)),
+            synthesis_reserve_calls=int(setting("budget.synthesis_reserve_calls", 1)),
         )
         self._checkpointer = MemorySaver()
         self._graph = build_graph(self.services, self._budget, self._checkpointer)
@@ -102,12 +105,28 @@ class ChatSession:
 
             answer = result.get("answer") or "I wasn't able to produce an answer for that."
             route = result.get("route", "?")
-            self.services.tracer.end_trace("refused" if route == "refused" else "ok")
+            # A node can fail to compose an answer without raising: it catches the
+            # error and hands back the retrieved figures. That is still a failed
+            # turn. Counting it as answered makes answer_rate blind to exactly the
+            # failure the manager experiences, and hides the turn from any query
+            # for failures - so the flag is set at the failure site and read here.
+            failed = bool(result.get("answer_failed"))
+            if route == "refused":
+                outcome = "refused"
+            elif failed:
+                outcome = "failed"
+            else:
+                outcome = "ok"
+            self.services.tracer.end_trace(outcome)
             # A refusal is a correct outcome, but it is not an answered question -
             # counting it as both makes answer_rate unable to detect over-blocking.
-            if route != "refused":
+            if outcome == "ok":
                 metrics.incr("turns.answered", route=route)
-            ok, error = True, ""
+            elif failed:
+                metrics.incr("turns.failed", error="answer_composition")
+            # `ok` stays "nothing escaped" - resilience depends on that contract.
+            # Whether an answer was composed is a separate question.
+            ok, answered, error = True, not failed, ""
         except Exception as exc:
             # Last line of defence: the CLI must never see a traceback.
             self.services.tracer.end_trace("error")
@@ -118,7 +137,7 @@ class ChatSession:
                 f"`{type(exc).__name__}: {str(exc)[:200]}`\n\n"
                 f"Trace `{trace.trace_id}` has the details — run `/trace` to see where it broke."
             )
-            ok, error = False, f"{type(exc).__name__}: {exc}"
+            ok, answered, error = False, False, f"{type(exc).__name__}: {exc}"
 
         elapsed = (time.perf_counter() - started) * 1000
         metrics.observe("turn.latency_ms", elapsed)
@@ -129,7 +148,7 @@ class ChatSession:
         self.history = self.history[-24:]
 
         turn = TurnResult(answer=answer, state=result, trace=trace, elapsed_ms=elapsed,
-                          ok=ok, error=error)
+                          ok=ok, answered=answered, error=error)
         self.last_result = turn
         return turn
 

@@ -791,7 +791,7 @@ the trace id. **The CLI can never print a traceback.**
 
 ```mermaid
 flowchart BT
-    U["Unit — 136 tests, ~6 s, no network<br/><i>validator, masker, retrieval, budgets, breakers</i>"]
+    U["Unit — 183 tests, ~11 s, no network<br/><i>validator, masker, retrieval, budgets, breakers</i>"]
     I["Integration — full graph on a scripted model<br/><i>repair cycles, interrupts, degradation</i>"]
     E["Golden-set evals — 3 suites, 20 cases<br/><i>analysis · safety · resilience</i>"]
     J["LLM-as-judge — 5 rubric dimensions"]
@@ -993,9 +993,9 @@ warehouse that runs with no cloud account.
 | Requirement | Status | Where |
 |---|---|---|
 | Safety & PII masking | **Full** — 5 layers, 43 tests | `safety/guardrail.py`, `safety/sql_guard.py`, `safety/pii.py` |
-| High-stakes oversight | **Full** — two-phase, graph interrupt, token binding, soft delete, audit | `tools/report_store.py`, `nodes/reports.py` |
+| High-stakes oversight | **Full** — two-phase, graph interrupt, token binding, soft delete, routed restore, audit | `tools/report_store.py`, `nodes/reports.py` |
 | Resilience & error handling | **Full** — classified repair, bounded budgets, breaker, degradation ladder | `nodes/sql.py`, `resilience/policies.py`, `llm.py` |
-| Quality assurance | **Full** — 136 tests + 3 eval suites + judge harness | `tests/`, `evals/` |
+| Quality assurance | **Full** — 183 tests + 3 eval suites + judge harness | `tests/`, `evals/` |
 | Observability | **Full** — OTel-shaped tracing, 25 metrics, `/trace` | `obs/tracing.py`, `obs/metrics.py` |
 | Hybrid intelligence | **Full** — hybrid retrieval, 7 seeded trios, candidate queue | `golden/store.py`, `nodes/learn.py` |
 | Learning loops | **Full** — confidence-ramped prefs, human-gated trios | `memory/user_profile.py`, `nodes/learn.py` |

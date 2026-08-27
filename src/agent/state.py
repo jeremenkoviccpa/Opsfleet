@@ -51,7 +51,8 @@ class AgentState(TypedDict, total=False):
     precedent_block: str
 
     # --- planning -------------------------------------------------------
-    route: str               # analysis | schema | delete_reports | save_report | converse | refused
+    route: str               # analysis | schema | delete_reports | restore_reports
+                             # | save_report | converse | refused
     intent_reason: str
     time_window: str
     plan_notes: str
@@ -67,6 +68,7 @@ class AgentState(TypedDict, total=False):
     deletion_token: str
     deletion_preview: Dict[str, Any]
     deletion_result: Dict[str, Any]
+    restore_result: Dict[str, Any]
 
     # --- output ---------------------------------------------------------
     answer: str
@@ -74,6 +76,7 @@ class AgentState(TypedDict, total=False):
     saved_report: Dict[str, Any]
     degraded: bool
     degraded_reason: str
+    answer_failed: bool      # the pipeline ran but no answer was composed
     warnings: List[str]
     errors: List[str]
     learned: List[str]
@@ -93,5 +96,6 @@ def new_state(
         time_window="", plan_notes="", steps=[], current_step=0,
         repair_budget_left=0, last_error="", last_error_kind="",
         answer="", answer_is_report=False, degraded=False, degraded_reason="",
+        answer_failed=False,
         warnings=[], errors=[], learned=[],
     )

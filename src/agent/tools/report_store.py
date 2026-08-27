@@ -159,6 +159,22 @@ class ReportStore:
           all           bool      - every report owned by the user
         """
         reports = self.list(user_id, include_deleted=False, limit=1000)
+        selected, reasons = self._select(reports, criteria)
+        plan = DeletionPlan(
+            token=secrets.token_hex(3), user_id=user_id, reports=selected,
+            criteria=criteria, match_reasons=reasons,
+        )
+        self._plans[plan.token] = plan
+        metrics.incr("reports.delete_requested", matched=len(selected))
+        self._audit(user_id, "report.delete_requested", plan.ids(),
+                    {"criteria": criteria, "token": plan.token, "matched": len(selected)})
+        return plan
+
+    @staticmethod
+    def _select(
+        reports: List[Report], criteria: Dict[str, Any],
+    ) -> Tuple[List[Report], Dict[str, str]]:
+        """Match reports against criteria. Pure, and shared by delete and restore."""
         reasons: Dict[str, str] = {}
         selected: List[Report] = []
 
@@ -201,15 +217,58 @@ class ReportStore:
             selected.append(report)
             reasons[report.report_id] = "; ".join(why)
 
-        plan = DeletionPlan(
-            token=secrets.token_hex(3), user_id=user_id, reports=selected,
-            criteria=criteria, match_reasons=reasons,
+        return selected, reasons
+
+    def resolve_restore(
+        self, *, user_id: str, criteria: Dict[str, Any],
+    ) -> Tuple[List[Report], Dict[str, str]]:
+        """Find soft-deleted reports to bring back. Read-only.
+
+        Restore is the inverse of deletion and reuses its matcher, with one
+        addition: an unqualified "undo that delete" resolves to the most recent
+        delete batch rather than to nothing. Deletion resolves an unqualified
+        request towards the empty set because the blast radius is the library;
+        restore can resolve towards the last batch because the worst case is a
+        report the manager already asked to keep.
+        """
+        deleted = [r for r in self.list(user_id, include_deleted=True, limit=1000) if r.deleted]
+        if not deleted:
+            return [], {}
+
+        selected, reasons = self._select(deleted, criteria)
+        if selected:
+            return selected, reasons
+
+        has_matcher = bool(
+            criteria.get("mentions") or criteria.get("report_ids")
+            or criteria.get("session_id") or criteria.get("all")
         )
-        self._plans[plan.token] = plan
-        metrics.incr("reports.delete_requested", matched=len(selected))
-        self._audit(user_id, "report.delete_requested", plan.ids(),
-                    {"criteria": criteria, "token": plan.token, "matched": len(selected)})
-        return plan
+        if has_matcher:
+            return [], {}
+
+        # "The last delete" is an event, not a timestamp. Grouping by deleted_at
+        # merges two deletions that happen in the same second, so the last
+        # confirmed deletion is read from the audit log - which is the actual
+        # record of what happened, and is written on the same transaction.
+        still_deleted = {r.report_id: r for r in deleted}
+        for entry in self.audit_trail(user_id, limit=200):
+            if entry["action"] != "report.delete_confirmed":
+                continue
+            batch = [still_deleted[i] for i in entry["targets"] if i in still_deleted]
+            if batch:
+                return batch, {r.report_id: "from the most recent deletion" for r in batch}
+            # That batch was already restored; keep walking back.
+        return [], {}
+
+    def restore_reports(
+        self, reports: List[Report], user_id: str, trace_id: str = "",
+    ) -> Tuple[int, List[str]]:
+        ids = [r.report_id for r in reports]
+        count = self.restore(ids, user_id)
+        metrics.incr("reports.restore_confirmed", count=count)
+        self._audit(user_id, "report.restore_confirmed", ids,
+                    {"restored": count}, trace_id)
+        return count, ids
 
     def get_plan(self, token: str) -> Optional[DeletionPlan]:
         plan = self._plans.get(token)
